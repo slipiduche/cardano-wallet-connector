@@ -47,6 +47,16 @@ import {
     hash_plutus_data,
     ScriptDataHash, Ed25519KeyHash, NativeScript, StakeCredential
 } from "@emurgo/cardano-serialization-lib-asmjs"
+import {
+    assetsToValue,
+    fromAscii,
+    fromHex,
+    getSellOffer,
+    lovelacePercentage,
+    toBytesNum,
+    toHex,
+    valueToAssets,
+  } from "./utils.js";
 import { blake2b } from "blakejs";
 let Buffer = require('buffer/').Buffer
 let blake = require('blakejs')
@@ -90,7 +100,7 @@ export default class App extends React.Component {
             transactionIndxLocked: 0,
             lovelaceLocked: 3000000,
             manualFee: 900000,
-            aSellPrice:10000000
+            aSellPrice: 10000000
 
         }
 
@@ -757,7 +767,7 @@ export default class App extends React.Component {
         fieldsInner.add(PlutusData.new_bytes(aSeller));
         fieldsInner.add(
             PlutusData.new_integer(
-                BigInt.from_str(aSellPrice)
+                BigInt.from_str(aSellPrice.toString())
             )
         );
         fieldsInner.add(PlutusData.new_bytes(aCurrency));
@@ -768,14 +778,14 @@ export default class App extends React.Component {
         sellOffer.add(
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
-                    Int.new_i32(0),
+                    BigNum.zero(),
                     fieldsInner
                 )
             )
         );
         const datum = PlutusData.new_constr_plutus_data(
             ConstrPlutusData.new(
-                Int.new_i32(this.DATUM_TYPE.SellOffer),
+                BigNum.from_str(this.DATUM_TYPE.SellOffer.toString()),
                 sellOffer
             )
         );
@@ -788,15 +798,18 @@ export default class App extends React.Component {
         const txBuilder = await this.initTransactionBuilder();
         const ScriptAddress = Address.from_bech32(this.state.addressScriptBech32);
         const shelleyChangeAddress = Address.from_bech32(this.state.changeAddress)
-
+        const sellerBaseAddress = BaseAddress.from_address(shelleyChangeAddress)
+        console.log('pubpaymentkey2');
+        console.log(toHex(sellerBaseAddress.payment_cred().to_keyhash().to_bytes()))
         let txOutputBuilder = TransactionOutputBuilder.new();
         txOutputBuilder = txOutputBuilder.with_address(ScriptAddress);
         const offerDatum = this.SellOfferDatum({
-            aSeller: shelleyChangeAddress.payment_cred().to_keyhash().to_bytes().to_hex(),
+            aSeller: toHex(sellerBaseAddress.payment_cred().to_keyhash().to_bytes()),
             aSellPrice: this.state.aSellPrice,
             aCurrency: this.state.assetPolicyIdHex,
             aToken: this.state.assetNameHex
         });
+        console.log('pass');
         //const dataHash = hash_plutus_data(PlutusData.new_integer(BigInt.from_str(this.state.datumStr)))
         const dataHash = hash_plutus_data(offerDatum)
         txOutputBuilder = txOutputBuilder.with_data_hash(dataHash)
@@ -825,7 +838,7 @@ export default class App extends React.Component {
         // Find the available UTXOs in the wallet and
         // us them as Inputs
         const txUnspentOutputs = await this.getTxUnspentOutputs();
-        txBuilder.add_inputs_from(txUnspentOutputs, 3)
+        txBuilder.add_inputs_from(txUnspentOutputs, 2)//3
 
 
         // calculate the min fee required and send any change to an address
