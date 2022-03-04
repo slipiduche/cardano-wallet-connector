@@ -60,7 +60,7 @@ export default class App extends React.Component
 
         this.state = {
             selectedTabId: "1",
-            whichWalletSelected: "ccvault",
+            whichWalletSelected: "nami",
             walletFound: false,
             walletIsEnabled: false,
             walletName: undefined,
