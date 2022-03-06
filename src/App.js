@@ -980,7 +980,17 @@ export default class App extends React.Component {
         this.setState({ submittedTxHash });
 
     }
-    BuyOfferDatum = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+    BuyOffer = ({ bBuyer, bBuyOffer }) => {
+        const buyOffer = PlutusList.new();
+        buyOffer.add(PlutusData.new_bytes(bBuyer));
+        buyOffer.add(
+            PlutusData.new_integer(
+                BigInt.from_str(bBuyOffer.toString())
+            )
+        );
+        return buyOffer
+    }
+    SellOffer = ({ aSeller, aSellPrice, aCurrency, aToken }) => {
         const fieldsInner = PlutusList.new();
         fieldsInner.add(PlutusData.new_bytes(aSeller));
         fieldsInner.add(
@@ -990,37 +1000,44 @@ export default class App extends React.Component {
         );
         fieldsInner.add(PlutusData.new_bytes(aCurrency));
         fieldsInner.add(PlutusData.new_bytes(aToken));
+        return fieldsInner
+    }
 
-        const fieldsInner2 = PlutusList.new();
-        fieldsInner2.add(PlutusData.new_bytes(bBuyer));
-        fieldsInner2.add(
-            PlutusData.new_integer(
-                BigInt.from_str(bBuyOffer.toString())
-            )
-        );
-
-
-        const sellOffer = PlutusList.new();
-        sellOffer.add(
+    BuyOfferList = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+        const buyOfferList = PlutusList.new();
+        buyOfferList.add(
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
                     BigNum.zero(),
-                    fieldsInner
+                    this.SellOffer({
+                        aSeller: aSeller, aSellPrice: aSellPrice, aCurrency: aCurrency, aToken: aToken
+                    })
                 )
             )
         );
-        sellOffer.add(
+        buyOfferList.add(
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
                     BigNum.zero(),
-                    fieldsInner2
+                    this.BuyOffer(
+                        { bBuyer: bBuyer, bBuyOffer: bBuyOffer }
+                    )
                 )
             )
         );
+        return buyOfferList
+    }
+
+
+    BuyOfferDatum = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+
+
         const datum = PlutusData.new_constr_plutus_data(
             ConstrPlutusData.new(
                 BigNum.from_str(this.DATUM_TYPE.SellOffer.toString()),
-                sellOffer
+                this.BuyOfferList(
+                    { bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }
+                )
             )
         );
         return datum;
@@ -1043,7 +1060,7 @@ export default class App extends React.Component {
             aCurrency: this.state.assetPolicyIdHex,
             aToken: this.state.assetNameHex
         });
-        
+
         // adding utxo that contain token
         let multiAsset1 = MultiAsset.new();
         let assets1 = Assets.new()
@@ -1056,7 +1073,7 @@ export default class App extends React.Component {
             assets1
         );
 
-        
+
         txBuilder.add_input(
             ScriptAddress,
             TransactionInput.new(
@@ -1084,7 +1101,7 @@ export default class App extends React.Component {
 
         // txOutputBuilder = txOutputBuilder.with_asset_and_min_required_coin(multiAsset, BigNum.from_str(this.protocolParams.coinsPerUtxoWord))
 
-        txOutputBuilder = txOutputBuilder.with_coin_and_asset(BigNum.from_str((this.state.lovelaceToSend+10000000).toString()), multiAsset)
+        txOutputBuilder = txOutputBuilder.with_coin_and_asset(BigNum.from_str((this.state.lovelaceToSend + 10000000).toString()), multiAsset)
 
         const txOutput = txOutputBuilder.build();
 
@@ -1122,7 +1139,12 @@ export default class App extends React.Component {
         const data = PlutusData.new_constr_plutus_data(
             ConstrPlutusData.new(
                 BigNum.from_str("0"),
-                PlutusList.new()
+                this.BuyOffer(
+                    {
+                        bBuyer: toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()),
+                        bBuyOffer: '10000000'
+                    }
+                )
             )
         );
 
@@ -1131,18 +1153,26 @@ export default class App extends React.Component {
             BigNum.from_str("0"),
             data,
             ExUnits.new(
-                BigNum.from_str("7000000"),
-                BigNum.from_str("3000000000")
+                BigNum.from_str("5000000"),////7000000
+                BigNum.from_str("5000000000")///("3000000000") ///
             )
         );
 
         redeemers.add(redeemer)
 
+        const datum=this.BuyOfferList({
+            bBuyer: toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()),
+            bBuyOffer: '10000000',
+            aSeller: toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()),
+            aSellPrice: '10000000',//this.state.aSellPrice,
+            aCurrency: this.state.assetPolicyIdHex,
+            aToken: this.state.assetNameHex
+        })
         // Tx witness
         const transactionWitnessSet = TransactionWitnessSet.new();
 
         transactionWitnessSet.set_plutus_scripts(scripts)
-        transactionWitnessSet.set_plutus_data(buyOfferDatum)
+        transactionWitnessSet.set_plutus_data(datum)
         transactionWitnessSet.set_redeemers(redeemers)
 
         const cost_model_vals = [197209, 0, 1, 1, 396231, 621, 0, 1, 150000, 1000, 0, 1, 150000, 32, 2477736, 29175, 4, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 100, 100, 29773, 100, 150000, 32, 150000, 32, 150000, 32, 150000, 1000, 0, 1, 150000, 32, 150000, 1000, 0, 8, 148000, 425507, 118, 0, 1, 1, 150000, 1000, 0, 8, 150000, 112536, 247, 1, 150000, 10000, 1, 136542, 1326, 1, 1000, 150000, 1000, 1, 150000, 32, 150000, 32, 150000, 32, 1, 1, 150000, 1, 150000, 4, 103599, 248, 1, 103599, 248, 1, 145276, 1366, 1, 179690, 497, 1, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 148000, 425507, 118, 0, 1, 1, 61516, 11218, 0, 1, 150000, 32, 148000, 425507, 118, 0, 1, 1, 148000, 425507, 118, 0, 1, 1, 2477736, 29175, 4, 0, 82363, 4, 150000, 5000, 0, 1, 150000, 32, 197209, 0, 1, 1, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 3345831, 1, 1];
@@ -1154,7 +1184,7 @@ export default class App extends React.Component {
         const costModels = Costmdls.new();
         costModels.insert(Language.new_plutus_v1(), costModel);
 
-        const scriptDataHash = hash_script_data(redeemers, costModels, buyOfferDatum);
+        const scriptDataHash = hash_script_data(redeemers, costModels, datum);
         txBody.set_script_data_hash(scriptDataHash);
 
         txBody.set_collateral(inputs)
@@ -1185,7 +1215,7 @@ export default class App extends React.Component {
         console.log(submittedTxHash)
         this.setState({ submittedTxHash });
 
-        
+
     }
 
     buildRedeemTokenFromPlutusScript = async () => {
@@ -1840,7 +1870,8 @@ export default class App extends React.Component {
                                     onValueChange={(event) => this.setState({ manualFee: event })}
                                 />
                             </FormGroup>
-                            <button style={{ padding: "10px" }} onClick={this.buildRedeemTokenFromPlutusScript}>Run</button>
+                            {/* <button style={{ padding: "10px" }} onClick={this.buildRedeemTokenFromPlutusScript}>Run</button> */}
+                            <button style={{ padding: "10px" }} onClick={this.buildBuyToken}>Run</button>
                         </div>
                     } />
                     <Tabs.Expander />
