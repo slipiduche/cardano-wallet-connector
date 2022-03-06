@@ -56,7 +56,7 @@ import {
     toBytesNum,
     toHex,
     valueToAssets,
-  } from "./utils.js";
+} from "./utils.js";
 import { blake2b } from "blakejs";
 let Buffer = require('buffer/').Buffer
 let blake = require('blakejs')
@@ -980,6 +980,142 @@ export default class App extends React.Component {
         this.setState({ submittedTxHash });
 
     }
+    BuyOfferDatum = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+        const fieldsInner = PlutusList.new();
+        fieldsInner.add(PlutusData.new_bytes(aSeller));
+        fieldsInner.add(
+            PlutusData.new_integer(
+                BigInt.from_str(aSellPrice.toString())
+            )
+        );
+        fieldsInner.add(PlutusData.new_bytes(aCurrency));
+        fieldsInner.add(PlutusData.new_bytes(aToken));
+
+        const fieldsInner2 = PlutusList.new();
+        fieldsInner2.add(PlutusData.new_bytes(bBuyer));
+        fieldsInner2.add(
+            PlutusData.new_integer(
+                BigInt.from_str(bBuyOffer.toString())
+            )
+        );
+
+
+        const sellOffer = PlutusList.new();
+        sellOffer.add(
+            PlutusData.new_constr_plutus_data(
+                ConstrPlutusData.new(
+                    BigNum.zero(),
+                    fieldsInner
+                )
+            )
+        );
+        sellOffer.add(
+            PlutusData.new_constr_plutus_data(
+                ConstrPlutusData.new(
+                    BigNum.zero(),
+                    fieldsInner2
+                )
+            )
+        );
+        const datum = PlutusData.new_constr_plutus_data(
+            ConstrPlutusData.new(
+                BigNum.from_str(this.DATUM_TYPE.SellOffer.toString()),
+                sellOffer
+            )
+        );
+        return datum;
+    };
+
+    buildBuyToken = async () => {
+        const txBuilder = await this.initTransactionBuilder();
+        const ScriptAddress = Address.from_bech32(this.state.addressScriptBech32);
+        const shelleyChangeAddress = Address.from_bech32(this.state.changeAddress)
+        const buyerBaseAddress = BaseAddress.from_address(shelleyChangeAddress)
+        console.log('pubpaymentkey2');
+        console.log(toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()))
+        let txOutputBuilder = TransactionOutputBuilder.new();
+        txOutputBuilder = txOutputBuilder.with_address(ScriptAddress);
+        const buyOfferDatum = this.BuyOfferDatum({
+            bBuyer: toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()),
+            bBuyOffer: '10000000',
+            aSeller: toHex(buyerBaseAddress.payment_cred().to_keyhash().to_bytes()),
+            aSellPrice: '10000000',//this.state.aSellPrice,
+            aCurrency: this.state.assetPolicyIdHex,
+            aToken: this.state.assetNameHex
+        });
+
+        let multiAsset1 = MultiAsset.new();
+        let assets1 = Assets.new()
+
+        // adding utxo that contain token
+        txBuilder.add_input(
+            ScriptAddress,
+            TransactionInput.new(
+                TransactionHash.from_bytes(Buffer.from(this.state.transactionIdLocked, "hex")),
+                this.state.transactionIndxLocked.toString()),
+            Value.new_from_assets(multiAsset1)
+        ) // how much lovelace is at that UTXO
+
+        // Script output minimun ada + buyoffer + token 
+        const dataHash = hash_plutus_data(buyOfferDatum)
+        txOutputBuilder = txOutputBuilder.with_data_hash(dataHash)
+
+        txOutputBuilder = txOutputBuilder.next();
+
+        let multiAsset = MultiAsset.new();
+        let assets = Assets.new()
+        assets.insert(
+            AssetName.new(Buffer.from(this.state.assetNameHex, "hex")), // Asset Name
+            BigNum.from_str(this.state.assetAmountToSend.toString()) // How much to send
+        );
+        multiAsset.insert(
+            ScriptHash.from_bytes(Buffer.from(this.state.assetPolicyIdHex, "hex")), // PolicyID
+            assets
+        );
+
+        // txOutputBuilder = txOutputBuilder.with_asset_and_min_required_coin(multiAsset, BigNum.from_str(this.protocolParams.coinsPerUtxoWord))
+
+        txOutputBuilder = txOutputBuilder.with_coin_and_asset(BigNum.from_str((this.state.lovelaceToSend+10000000).toString()), multiAsset)
+
+        const txOutput = txOutputBuilder.build();
+
+        txBuilder.add_output(txOutput)
+
+
+        // Find the available UTXOs in the wallet and
+        // us them as Inputs
+        const txUnspentOutputs = await this.getTxUnspentOutputs();
+        txBuilder.add_inputs_from(txUnspentOutputs, 2)//3
+
+
+        // calculate the min fee required and send any change to an address
+        txBuilder.add_change_if_needed(shelleyChangeAddress)
+
+        // once the transaction is ready, we build it to get the tx body without witnesses
+        const txBody = txBuilder.build();
+
+        // Tx witness
+        const transactionWitnessSet = TransactionWitnessSet.new();
+
+        const tx = Transaction.new(
+            txBody,
+            TransactionWitnessSet.from_bytes(transactionWitnessSet.to_bytes())
+        )
+
+        let txVkeyWitnesses = await this.API.signTx(Buffer.from(tx.to_bytes(), "utf8").toString("hex"), true);
+        txVkeyWitnesses = TransactionWitnessSet.from_bytes(Buffer.from(txVkeyWitnesses, "hex"));
+
+        transactionWitnessSet.set_vkeys(txVkeyWitnesses.vkeys());
+
+        const signedTx = Transaction.new(
+            tx.body(),
+            transactionWitnessSet
+        );
+
+        const submittedTxHash = await this.API.submitTx(Buffer.from(signedTx.to_bytes(), "utf8").toString("hex"));
+        console.log(submittedTxHash)
+
+    }
 
     buildRedeemTokenFromPlutusScript = async () => {
 
@@ -1491,7 +1627,7 @@ export default class App extends React.Component {
                             {/*<button style={{padding: "10px"}} onClick={this.submitTransaction}>3. Submit Transaction</button>*/}
                         </div>
                     } />
-                    <Tab id="6" title="6. Redeem Tokens from Plutus Script" panel={
+                    <Tab id="6" title="6. Redeem Tokens (buy) from Plutus Script" panel={
                         <div style={{ marginLeft: "20px" }}>
                             <FormGroup
                                 helperText="Script address where ADA is locked ..."
