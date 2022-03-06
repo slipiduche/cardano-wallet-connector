@@ -1043,11 +1043,20 @@ export default class App extends React.Component {
             aCurrency: this.state.assetPolicyIdHex,
             aToken: this.state.assetNameHex
         });
-
+        
+        // adding utxo that contain token
         let multiAsset1 = MultiAsset.new();
         let assets1 = Assets.new()
+        assets1.insert(
+            AssetName.new(Buffer.from(this.state.assetNameHex, "hex")), // Asset Name
+            BigNum.from_str(this.state.assetAmountToSend.toString()) // How much to send
+        );
+        multiAsset1.insert(
+            ScriptHash.from_bytes(Buffer.from(this.state.assetPolicyIdHex, "hex")), // PolicyID
+            assets1
+        );
 
-        // adding utxo that contain token
+        
         txBuilder.add_input(
             ScriptAddress,
             TransactionInput.new(
@@ -1091,11 +1100,71 @@ export default class App extends React.Component {
         // calculate the min fee required and send any change to an address
         txBuilder.add_change_if_needed(shelleyChangeAddress)
 
+        txBuilder.set_fee(BigNum.from_str(Number(this.state.manualFee).toString()))
+
+        const scripts = PlutusScripts.new();
+        scripts.add(PlutusScript.from_bytes(Buffer.from(this.state.plutusScriptCborHex, "hex"))); //from cbor of plutus script
+
+        /////
         // once the transaction is ready, we build it to get the tx body without witnesses
         const txBody = txBuilder.build();
 
+        const collateral = this.state.CollatUtxos;
+        const inputs = TransactionInputs.new();
+        collateral.forEach((utxo) => {
+            inputs.add(utxo.input());
+        });
+
+
+
+        const redeemers = Redeemers.new();
+
+        const data = PlutusData.new_constr_plutus_data(
+            ConstrPlutusData.new(
+                BigNum.from_str("0"),
+                PlutusList.new()
+            )
+        );
+
+        const redeemer = Redeemer.new(
+            RedeemerTag.new_spend(),
+            BigNum.from_str("0"),
+            data,
+            ExUnits.new(
+                BigNum.from_str("7000000"),
+                BigNum.from_str("3000000000")
+            )
+        );
+
+        redeemers.add(redeemer)
+
         // Tx witness
         const transactionWitnessSet = TransactionWitnessSet.new();
+
+        transactionWitnessSet.set_plutus_scripts(scripts)
+        transactionWitnessSet.set_plutus_data(buyOfferDatum)
+        transactionWitnessSet.set_redeemers(redeemers)
+
+        const cost_model_vals = [197209, 0, 1, 1, 396231, 621, 0, 1, 150000, 1000, 0, 1, 150000, 32, 2477736, 29175, 4, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 29773, 100, 100, 100, 29773, 100, 150000, 32, 150000, 32, 150000, 32, 150000, 1000, 0, 1, 150000, 32, 150000, 1000, 0, 8, 148000, 425507, 118, 0, 1, 1, 150000, 1000, 0, 8, 150000, 112536, 247, 1, 150000, 10000, 1, 136542, 1326, 1, 1000, 150000, 1000, 1, 150000, 32, 150000, 32, 150000, 32, 1, 1, 150000, 1, 150000, 4, 103599, 248, 1, 103599, 248, 1, 145276, 1366, 1, 179690, 497, 1, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 148000, 425507, 118, 0, 1, 1, 61516, 11218, 0, 1, 150000, 32, 148000, 425507, 118, 0, 1, 1, 148000, 425507, 118, 0, 1, 1, 2477736, 29175, 4, 0, 82363, 4, 150000, 5000, 0, 1, 150000, 32, 197209, 0, 1, 1, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 150000, 32, 3345831, 1, 1];
+
+        const costModel = CostModel.new();
+        cost_model_vals.forEach((x, i) => costModel.set(i, Int.new_i32(x)));
+
+
+        const costModels = Costmdls.new();
+        costModels.insert(Language.new_plutus_v1(), costModel);
+
+        const scriptDataHash = hash_script_data(redeemers, costModels, buyOfferDatum);
+        txBody.set_script_data_hash(scriptDataHash);
+
+        txBody.set_collateral(inputs)
+
+
+        const baseAddress = BaseAddress.from_address(shelleyChangeAddress)
+        const requiredSigners = Ed25519KeyHashes.new();
+        requiredSigners.add(baseAddress.payment_cred().to_keyhash())
+
+        txBody.set_required_signers(requiredSigners);
 
         const tx = Transaction.new(
             txBody,
@@ -1114,7 +1183,9 @@ export default class App extends React.Component {
 
         const submittedTxHash = await this.API.submitTx(Buffer.from(signedTx.to_bytes(), "utf8").toString("hex"));
         console.log(submittedTxHash)
+        this.setState({ submittedTxHash });
 
+        
     }
 
     buildRedeemTokenFromPlutusScript = async () => {
