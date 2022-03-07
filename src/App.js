@@ -778,21 +778,32 @@ export default class App extends React.Component {
         fieldsInner.add(PlutusData.new_bytes(aToken));
 
 
-        const sellOffer = PlutusList.new();
-        sellOffer.add(
+        const sellOffer =
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
                     BigNum.zero(),
                     fieldsInner
                 )
             )
-        );
+        const buyOfferFields = PlutusList.new()
+        const buyOffer = PlutusData.new_constr_plutus_data(
+            ConstrPlutusData.new(
+                BigNum.from_str("1"),
+                buyOfferFields
+            )
+
+        )
+
+        const datumFields = PlutusData.PlutusList.new()
+        datumFields.add(sellOffer),
+            datumFields.add(buyOffer)
+
         const datum = PlutusData.new_constr_plutus_data(
             ConstrPlutusData.new(
-                BigNum.from_str(this.DATUM_TYPE.SellOffer.toString()),
-                sellOffer
+                BigNum.zero(),
+                datumFields
             )
-        );
+        )
         return datum;
     };
 
@@ -984,7 +995,7 @@ export default class App extends React.Component {
         this.setState({ submittedTxHash });
 
     }
-    BuyOffer = ({ bBuyer, bBuyOffer }) => {
+    BuyOfferList = ({ bBuyer, bBuyOffer }) => {
         const buyOffer = PlutusList.new();
         buyOffer.add(PlutusData.new_bytes(bBuyer));
         buyOffer.add(
@@ -994,7 +1005,7 @@ export default class App extends React.Component {
         );
         return buyOffer
     }
-    SellOffer = ({ aSeller, aSellPrice, aCurrency, aToken }) => {
+    SellOfferList = ({ aSeller, aSellPrice, aCurrency, aToken }) => {
         const fieldsInner = PlutusList.new();
         fieldsInner.add(PlutusData.new_bytes(aSeller));
         fieldsInner.add(
@@ -1007,60 +1018,99 @@ export default class App extends React.Component {
         return fieldsInner
     }
 
-    BuyOfferList = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
-        const buyOfferList = PlutusList.new();
-        buyOfferList.add(
+    BuyOffer = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+        const buyOffer =
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
-                    BigNum.zero(),
-                    this.SellOffer({
-                        aSeller: aSeller, aSellPrice: aSellPrice, aCurrency: aCurrency, aToken: aToken
-                    })
+                    BigNum.from_str("1"),
+                    this.BuyOfferList({ bBuyer, bBuyOffer })
                 )
             )
-        );
-        buyOfferList.add(
-            PlutusData.new_constr_plutus_data(
-                ConstrPlutusData.new(
-                    BigNum.zero(),
-                    this.BuyOffer(
-                        { bBuyer: bBuyer, bBuyOffer: bBuyOffer }
-                    )
-                )
-            )
-        );
-        return buyOfferList
+
+        return buyOffer
     }
-    SellOfferList=({ aSeller, aSellPrice, aCurrency, aToken })=>{
-        const sellOfferList = PlutusList.new();
-        sellOfferList.add(
+    MaybeBuyOffer = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
+        const maybeBuyOffer =
+            PlutusData.new_constr_plutus_data(
+                ConstrPlutusData.new(
+                    BigNum.from_str("1"),
+                    this.BuyOffer({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken })
+                )
+            )
+
+        return maybeBuyOffer
+    }
+
+    SellOffer = ({ aSeller, aSellPrice, aCurrency, aToken }) => {
+        const sellOffer =
             PlutusData.new_constr_plutus_data(
                 ConstrPlutusData.new(
                     BigNum.zero(),
-                    this.SellOffer({
-                        aSeller: aSeller, aSellPrice: aSellPrice, aCurrency: aCurrency, aToken: aToken
-                    })
+                    this.SellOfferList({ aSeller, aSellPrice, aCurrency, aToken })
                 )
             )
-        ); 
-        return sellOfferList
+
+        return sellOffer
     }
-    
+
 
 
     BuyOfferDatum = ({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }) => {
 
+        const datumList = PlutusList.new()
+        datumList.add(
+            this.SellOffer({ aSeller, aSellPrice, aCurrency, aToken })
+        )
+        datumList.add(
+            this.MayBeBuyOffer({ bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken })
+        )
 
         const datum = PlutusData.new_constr_plutus_data(
             ConstrPlutusData.new(
-                BigNum.from_str(this.DATUM_TYPE.SellOffer.toString()),
-                this.BuyOfferList(
-                    { bBuyer, bBuyOffer, aSeller, aSellPrice, aCurrency, aToken }
-                )
+                BigNum.zero(),
+                datumList
             )
         );
         return datum;
     };
+
+    BuyRedeemer = (bBuyer,buyOffer) => {
+
+
+        // Construct Cardano Json
+        const bidDetailsFields = PlutusList.new();
+        bidDetailsFields.add(PlutusData.new_bytes(fromHex(bBuyer)))
+        bidDetailsFields.add(PlutusData.new_integer(BigInt.from_str(buyOffer)))
+        const redeemerData = PlutusData.new_constr_plutus_data(
+            ConstrPlutusData.new(
+                BigNum.zero(),
+                bidDetailsFields,
+            )
+        )
+
+        // Need to wrap the a redeemer in another constructor due to the Haskell "Maybe"
+        const auctionRedeemerFields = PlutusList.new();
+        auctionRedeemerFields.add(redeemerData);
+        const auctionRedeemerData = PlutusData.new_constr_plutus_data(
+            ConstrPlutusData.new(
+                Int.new_i32(0),
+                auctionRedeemerFields,
+            )
+        )
+
+        const redeemer = Redeemer.new(
+            RedeemerTag.new_spend(),
+            BigNum.from_str(redeemerIndex),
+            auctionRedeemerData,
+            ExUnits.new(
+                BigNum.from_str("7000000"),
+                BigNum.from_str("3000000000")
+            ) // ExUnits represents payment for computation (not sure about units, this was copied from SpaceBudz)
+        )
+
+        return redeemer;
+    }
+
 
     buildBuyToken = async () => {
         const txBuilder = await this.initTransactionBuilder();
@@ -1161,7 +1211,7 @@ export default class App extends React.Component {
         // // calculate the min fee required and send any change to an address
         //txBuilder.add_change_if_needed(shelleyChangeAddress)
 
-       
+
 
         const scripts = PlutusScripts.new();
         scripts.add(PlutusScript.from_bytes(Buffer.from(this.state.plutusScriptCborHex, "hex"))); //from cbor of plutus script
